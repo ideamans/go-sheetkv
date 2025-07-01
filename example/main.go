@@ -47,6 +47,7 @@ func main() {
 	// Append the record
 	err = client.Append(user)
 	if err != nil {
+		client.Close()
 		log.Fatalf("Failed to append record: %v", err)
 	}
 	fmt.Printf("Added user with key (row number): %d\n", user.Key)

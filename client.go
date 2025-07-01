@@ -75,6 +75,7 @@ func (c *Client) loadFromAdapter(ctx context.Context) error {
 
 		if i < c.config.MaxRetries {
 			// Exponential backoff with reasonable limits
+			// #nosec G115 - i is bounded by MaxRetries which is typically small
 			backoff := time.Duration(1<<uint(i)) * 100 * time.Millisecond
 			if backoff > 2*time.Second {
 				backoff = 2 * time.Second
@@ -112,6 +113,7 @@ func (c *Client) saveToAdapter(ctx context.Context) error {
 
 		if i < c.config.MaxRetries {
 			// Exponential backoff with reasonable limits
+			// #nosec G115 - i is bounded by MaxRetries which is typically small
 			backoff := time.Duration(1<<uint(i)) * 100 * time.Millisecond
 			if backoff > 2*time.Second {
 				backoff = 2 * time.Second

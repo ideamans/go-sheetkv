@@ -110,13 +110,16 @@ func TestSheetsAdaptor_LoadWithRetry(t *testing.T) {
 				}
 
 				// Count expected records based on response data
-				expectedRecords := 0
-				if tt.name == "success on first try" {
+				var expectedRecords int
+				switch tt.name {
+				case "success on first try":
 					expectedRecords = 2 // John and Jane
-				} else if tt.name == "success after one retry" {
+				case "success after one retry":
 					expectedRecords = 1 // Just John
-				} else if tt.name == "success after two retries" {
+				case "success after two retries":
 					expectedRecords = 1 // Just active status
+				default:
+					expectedRecords = 0
 				}
 
 				if len(records) != expectedRecords {

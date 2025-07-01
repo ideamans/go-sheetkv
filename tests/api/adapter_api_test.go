@@ -528,12 +528,12 @@ func testConcurrentOperations(t *testing.T, client *sheetkv.Client) {
 	errors := make(chan error, numGoroutines*opsPerGoroutine)
 
 	// Concurrent writes
-	for i := range numGoroutines {
+	for i := 0; i < numGoroutines; i++ {
 		wg.Add(1)
 		go func(routineID int) {
 			defer wg.Done()
 
-			for j := range opsPerGoroutine {
+			for j := 0; j < opsPerGoroutine; j++ {
 				record := &sheetkv.Record{
 					Values: map[string]any{
 						"routine_id": routineID,
@@ -685,7 +685,7 @@ func testLargeDataSet(t *testing.T, client *sheetkv.Client) {
 	updateCount := 20
 	updateStart := time.Now()
 
-	for range updateCount {
+	for i := 0; i < updateCount; i++ {
 		// Random record between 2 and recordCount+1 (keys start at 2)
 		key := 2 + rand.Intn(recordCount)
 
