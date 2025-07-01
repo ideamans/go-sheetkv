@@ -1,0 +1,114 @@
+linters:
+  enable:
+    - gofmt
+    - govet
+    - errcheck
+    - staticcheck
+    - unused
+    - gosimple
+    - ineffassign
+    - typecheck
+    - gocritic
+    - goimports
+    - misspell
+    - lll
+    - nakedret
+    - prealloc
+    - unconvert
+    - dupl
+    - gosec
+    - stylecheck
+
+  disable:
+    - exhaustive
+    - gochecknoinits
+    - gochecknoglobals
+
+linters-settings:
+  errcheck:
+    # Ignore error checks in test files for better readability
+    exclude-functions:
+      - (io.Writer).Write
+      - (testing.T).Errorf
+      - (testing.T).Fatalf
+      - (testing.T).Logf
+      - (testing.T).Log
+    # Exclude test files from some error checks
+    check-blank: false
+  
+  unused:
+    # Allow unused code in test files
+    check-exported: false
+  
+  staticcheck:
+    checks: ["all", "-SA2001"]  # Disable empty critical section check
+  
+  lll:
+    line-length: 150
+  
+  dupl:
+    threshold: 100
+  
+  gocritic:
+    disabled-checks:
+      - commentedOutCode
+
+issues:
+  exclude-rules:
+    # Exclude error checks in test files
+    - path: _test\.go
+      linters:
+        - errcheck
+        - dupl
+        - gosec
+    
+    # Exclude specific error check patterns
+    - linters:
+        - errcheck
+      text: "Error return value of .* is not checked"
+      path: _test\.go
+    
+    # Allow unused code in test support files
+    - path: _test\.go
+      text: "is unused"
+      linters:
+        - unused
+    
+    # Exclude example files
+    - path: example\.go
+      linters:
+        - errcheck
+        - unused
+
+  # Maximum issues count per one linter
+  max-issues-per-linter: 50
+
+  # Maximum count of issues with the same text
+  max-same-issues: 10
+
+run:
+  # Timeout for analysis
+  timeout: 5m
+  
+  # Which dirs to skip
+  skip-dirs:
+    - vendor
+    - third_party
+    - testdata
+    - examples
+    - docs
+  
+  # Which files to skip
+  skip-files:
+    - ".*\\.pb\\.go"
+    - ".*\\.gen\\.go"
+
+output:
+  # Format: colored-line-number|line-number|json|tab|checkstyle|code-climate
+  format: colored-line-number
+  
+  # Print lines of code with issue
+  print-issued-lines: true
+  
+  # Print linter name in the end of issue text
+  print-linter-name: true
