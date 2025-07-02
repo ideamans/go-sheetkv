@@ -306,8 +306,8 @@ func TestSheetsAdaptor_Save(t *testing.T) {
 				t.Fatalf("Failed to create adaptor: %v", err)
 			}
 
-			// Test Save
-			err = adaptor.Save(context.Background(), tt.records, tt.schema)
+			// Test Save (using gap-preserving for consistency)
+			err = adaptor.Save(context.Background(), tt.records, tt.schema, sheetkv.SyncStrategyGapPreserving)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Save() error = %v, wantErr %v", err, tt.wantErr)
 			}

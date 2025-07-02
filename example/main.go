@@ -11,6 +11,12 @@ import (
 )
 
 func main() {
+	if err := run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func run() error {
 	ctx := context.Background()
 
 	// Create adapter configuration
@@ -22,7 +28,7 @@ func main() {
 	// Initialize Google Sheets adapter with JSON key file
 	adapter, err := googlesheets.NewWithJSONKeyFile(ctx, adapterConfig, "./service-account.json")
 	if err != nil {
-		log.Fatalf("Failed to create adapter: %v", err)
+		return fmt.Errorf("failed to create adapter: %w", err)
 	}
 
 	// Create client using recommended defaults for Google Sheets
@@ -32,6 +38,9 @@ func main() {
 
 	// Initialize KVS client
 	client := sheetkv.New(adapter, clientConfig)
+	if err = client.Initialize(ctx); err != nil {
+		return fmt.Errorf("failed to initialize client: %w", err)
+	}
 	defer client.Close()
 
 	// Create a new record
@@ -47,8 +56,7 @@ func main() {
 	// Append the record
 	err = client.Append(user)
 	if err != nil {
-		client.Close()
-		log.Fatalf("Failed to append record: %v", err)
+		return fmt.Errorf("failed to append record: %w", err)
 	}
 	fmt.Printf("Added user with key (row number): %d\n", user.Key)
 
@@ -61,7 +69,7 @@ func main() {
 		Limit: 10,
 	})
 	if err != nil {
-		log.Fatalf("Failed to query: %v", err)
+		return fmt.Errorf("failed to query: %w", err)
 	}
 
 	fmt.Printf("Found %d users aged 25-35:\n", len(results))
@@ -90,4 +98,6 @@ func main() {
 	if err != nil {
 		log.Printf("Failed to sync: %v", err)
 	}
+
+	return nil
 }

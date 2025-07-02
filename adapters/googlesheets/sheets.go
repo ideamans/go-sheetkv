@@ -84,7 +84,7 @@ func (a *SheetsAdaptor) Load(ctx context.Context) ([]*sheetkv.Record, []string, 
 }
 
 // Save replaces all data in the spreadsheet with the provided records
-func (a *SheetsAdaptor) Save(ctx context.Context, records []*sheetkv.Record, schema []string) error {
+func (a *SheetsAdaptor) Save(ctx context.Context, records []*sheetkv.Record, schema []string, strategy sheetkv.SyncStrategy) error {
 
 	// Sort records by key (row number)
 	sortedRecords := make([]*sheetkv.Record, len(records))
@@ -103,17 +103,47 @@ func (a *SheetsAdaptor) Save(ctx context.Context, records []*sheetkv.Record, sch
 	}
 	values = append(values, header)
 
-	// Data rows
-	for _, record := range sortedRecords {
-		row := make([]interface{}, len(schema))
-		for i, col := range schema {
-			if val, ok := record.Values[col]; ok {
-				row[i] = convertToSheetValue(val)
-			} else {
-				row[i] = ""
+	// Data rows based on sync strategy
+	if strategy == sheetkv.SyncStrategyGapPreserving {
+		// Gap-preserving sync: maintain row numbers, use empty rows for deleted records
+		currentRow := 2 // Start from row 2 (after header)
+
+		for _, record := range sortedRecords {
+			// Fill gaps with empty rows
+			for currentRow < record.Key {
+				emptyRow := make([]interface{}, len(schema))
+				for i := range emptyRow {
+					emptyRow[i] = ""
+				}
+				values = append(values, emptyRow)
+				currentRow++
 			}
+
+			// Add the actual record
+			row := make([]interface{}, len(schema))
+			for i, col := range schema {
+				if val, ok := record.Values[col]; ok {
+					row[i] = convertToSheetValue(val)
+				} else {
+					row[i] = ""
+				}
+			}
+			values = append(values, row)
+			currentRow++
 		}
-		values = append(values, row)
+	} else {
+		// Compacting sync: remove gaps, compact all records
+		for _, record := range sortedRecords {
+			row := make([]interface{}, len(schema))
+			for i, col := range schema {
+				if val, ok := record.Values[col]; ok {
+					row[i] = convertToSheetValue(val)
+				} else {
+					row[i] = ""
+				}
+			}
+			values = append(values, row)
+		}
 	}
 
 	// Clear the entire sheet first
@@ -211,8 +241,8 @@ func (a *SheetsAdaptor) BatchUpdate(ctx context.Context, operations []sheetkv.Op
 		newRecords = append(newRecords, r)
 	}
 
-	// Save all data
-	return a.Save(ctx, newRecords, schema)
+	// Save all data (use gap-preserving strategy for batch updates)
+	return a.Save(ctx, newRecords, schema, sheetkv.SyncStrategyGapPreserving)
 }
 
 // convertCellValue converts a Google Sheets cell value to Go type

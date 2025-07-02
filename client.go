@@ -93,7 +93,7 @@ func (c *Client) loadFromAdapter(ctx context.Context) error {
 }
 
 // saveToAdapter saves data to the adaptor with retry logic
-func (c *Client) saveToAdapter(ctx context.Context) error {
+func (c *Client) saveToAdapter(ctx context.Context, strategy SyncStrategy) error {
 	// Check if there's any dirty data to save
 	dirtyKeys := c.cache.GetDirtyKeys()
 	if len(dirtyKeys) == 0 {
@@ -105,7 +105,7 @@ func (c *Client) saveToAdapter(ctx context.Context) error {
 
 	var err error
 	for i := 0; i <= c.config.MaxRetries; i++ {
-		err = c.adaptor.Save(ctx, records, schema)
+		err = c.adaptor.Save(ctx, records, schema, strategy)
 		if err == nil {
 			c.cache.ClearDirty()
 			return nil
@@ -215,7 +215,7 @@ func (c *Client) Sync() error {
 		return fmt.Errorf("client is closed")
 	}
 
-	return c.saveToAdapter(context.Background())
+	return c.saveToAdapter(context.Background(), SyncStrategyGapPreserving)
 }
 
 // Close closes the client and ensures final sync
@@ -238,7 +238,7 @@ func (c *Client) Close() error {
 	}
 
 	// Perform final sync (without holding the mutex)
-	if err := c.saveToAdapter(context.Background()); err != nil {
+	if err := c.saveToAdapter(context.Background(), SyncStrategyCompacting); err != nil {
 		return fmt.Errorf("failed to sync on close: %w", err)
 	}
 
@@ -303,7 +303,7 @@ func (sm *SyncManager) performSync() {
 	}
 
 	// Perform sync
-	_ = sm.client.saveToAdapter(context.Background())
+	_ = sm.client.saveToAdapter(context.Background(), SyncStrategyGapPreserving)
 }
 
 // Stop stops the sync manager and waits for ongoing sync
