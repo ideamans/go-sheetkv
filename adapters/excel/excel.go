@@ -87,7 +87,7 @@ func (a *Adapter) Load(ctx context.Context) ([]*sheetkv.Record, []string, error)
 	records := make([]*sheetkv.Record, 0, len(rows)-1)
 	for i := 1; i < len(rows); i++ {
 		row := rows[i]
-		
+
 		record := &sheetkv.Record{
 			Key:    i + 1, // Row number (1-based, but data starts from row 2)
 			Values: make(map[string]interface{}),
@@ -231,7 +231,7 @@ func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []
 	if strategy == sheetkv.SyncStrategyGapPreserving {
 		// Gap-preserving sync: maintain row numbers, use empty rows for deleted records
 		currentRow := 2 // Start from row 2 (after header)
-		
+
 		for _, record := range sortedRecords {
 			// Fill gaps with empty rows
 			for currentRow < record.Key {
@@ -245,7 +245,7 @@ func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []
 				}
 				currentRow++
 			}
-			
+
 			// Write the actual record
 			rowValues := make([]interface{}, len(schema))
 			for i, col := range schema {
@@ -261,13 +261,13 @@ func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []
 			}
 			currentRow++
 		}
-		
+
 		// Clear any remaining rows beyond the last record
 		// Find the max row that exists
 		if len(sortedRecords) > 0 {
 			lastKey := sortedRecords[len(sortedRecords)-1].Key
 			// Clear rows beyond lastKey
-			for row := lastKey + 1; row <= lastKey + 100; row++ { // Clear up to 100 extra rows
+			for row := lastKey + 1; row <= lastKey+100; row++ { // Clear up to 100 extra rows
 				emptyRow := make([]interface{}, len(schema))
 				for i := range emptyRow {
 					emptyRow[i] = ""
@@ -294,11 +294,11 @@ func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []
 			}
 			rowNum++
 		}
-		
+
 		// Clear remaining rows after compacting
 		totalRows := len(sortedRecords) + 1 // +1 for header
 		// Clear up to 100 rows beyond the data
-		for row := totalRows + 1; row <= totalRows + 100; row++ {
+		for row := totalRows + 1; row <= totalRows+100; row++ {
 			emptyRow := make([]interface{}, len(schema))
 			for i := range emptyRow {
 				emptyRow[i] = ""

@@ -800,14 +800,14 @@ func testLargeDataSet(t *testing.T, client *sheetkv.Client) {
 // testSyncStrategies tests gap-preserving and compacting sync strategies
 func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 	ctx := context.Background()
-	
+
 	// Create two clients to test different sync behaviors
 	config := &sheetkv.Config{
 		SyncInterval:  30 * time.Second, // Long interval to control sync timing
 		MaxRetries:    3,
 		RetryInterval: 100 * time.Millisecond,
 	}
-	
+
 	t.Run("API-Level Sync Strategy Testing", func(t *testing.T) {
 		// Note: For sync strategy tests, we need to ensure clean state
 		// Clear the adapter's data directly first
@@ -818,13 +818,13 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 			}
 			t.Fatalf("Failed to clear adapter data: %v", err)
 		}
-		
+
 		// Initialize client
 		client := sheetkv.New(adapter, config)
 		if err := client.Initialize(ctx); err != nil {
 			t.Fatalf("Failed to initialize: %v", err)
 		}
-		
+
 		// Create initial dataset
 		initialData := []struct {
 			name   string
@@ -840,7 +840,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 			{"Grace", "Engineer", 105000},
 			{"Henry", "Manager", 125000},
 		}
-		
+
 		// Append all records and track keys
 		keyMap := make(map[string]int)
 		for _, data := range initialData {
@@ -856,7 +856,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 			}
 			keyMap[data.name] = record.Key
 		}
-		
+
 		// Delete some records to create gaps
 		toDelete := []string{"Bob", "David", "Frank"}
 		for _, name := range toDelete {
@@ -866,20 +866,20 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 				}
 			}
 		}
-		
+
 		// Test 1: Gap-Preserving Sync (manual sync)
 		t.Run("Manual Sync Preserves Gaps", func(t *testing.T) {
 			// Perform manual sync (should use gap-preserving)
 			if err := client.Sync(); err != nil {
 				t.Fatalf("Manual sync failed: %v", err)
 			}
-			
+
 			// Query all records to verify gaps
 			allRecords, err := client.Query(sheetkv.Query{})
 			if err != nil {
 				t.Fatalf("Query failed: %v", err)
 			}
-			
+
 			// Should still have records at original positions
 			for _, r := range allRecords {
 				switch r.Key {
@@ -893,13 +893,13 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 					t.Errorf("Found deleted record at key %d", r.Key)
 				}
 			}
-			
+
 			// Verify highest key is still at original position
 			if key := keyMap["Henry"]; key != 9 { // Henry should be at row 9 (8 records + header)
 				t.Errorf("Expected Henry at row 9, but key is %d", key)
 			}
 		})
-		
+
 		// Test 2: Append after deletion maintains continuity
 		t.Run("Append After Deletion", func(t *testing.T) {
 			// Add new records after deletions
@@ -911,7 +911,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 				{"Iris", "Engineer", 98000},
 				{"Jack", "Designer", 92000},
 			}
-			
+
 			var newKeys []int
 			for _, data := range newData {
 				record := &sheetkv.Record{
@@ -926,7 +926,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 				}
 				newKeys = append(newKeys, record.Key)
 			}
-			
+
 			// New records should continue from the highest key
 			expectedFirstNewKey := 10 // After Henry at 9
 			if newKeys[0] != expectedFirstNewKey {
@@ -936,26 +936,26 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 				t.Errorf("Expected second new record at key %d, got %d", expectedFirstNewKey+1, newKeys[1])
 			}
 		})
-		
+
 		// Test 3: Close with compacting sync
 		t.Run("Close Compacts Data", func(t *testing.T) {
 			// Close the client (triggers compacting sync)
 			if err := client.Close(); err != nil {
 				t.Fatalf("Close failed: %v", err)
 			}
-			
+
 			// Load directly from adapter to verify compacting
 			records, _, err := adapter.Load(ctx)
 			if err != nil {
 				t.Fatalf("Failed to load after close: %v", err)
 			}
-			
+
 			// Should have exactly 7 records (5 original - 3 deleted + 2 new)
 			expectedCount := 7
 			if len(records) != expectedCount {
 				t.Errorf("Expected %d compacted records, got %d", expectedCount, len(records))
 			}
-			
+
 			// Verify records are sequential from row 2
 			expectedNames := []string{"Alice", "Charlie", "Eve", "Grace", "Henry", "Iris", "Jack"}
 			for i, r := range records {
@@ -968,7 +968,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 					}
 				}
 			}
-			
+
 			// Verify salary data is preserved
 			for _, r := range records {
 				salary := r.GetAsFloat64("salary", 0)

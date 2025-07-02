@@ -32,6 +32,9 @@ func main() {
 
 	// Initialize KVS client
 	client := sheetkv.New(adapter, clientConfig)
+	if err = client.Initialize(ctx); err != nil {
+		log.Fatalf("Failed to initialize client: %v", err)
+	}
 	defer client.Close()
 
 	// Create a new record

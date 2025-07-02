@@ -107,7 +107,7 @@ func (a *SheetsAdaptor) Save(ctx context.Context, records []*sheetkv.Record, sch
 	if strategy == sheetkv.SyncStrategyGapPreserving {
 		// Gap-preserving sync: maintain row numbers, use empty rows for deleted records
 		currentRow := 2 // Start from row 2 (after header)
-		
+
 		for _, record := range sortedRecords {
 			// Fill gaps with empty rows
 			for currentRow < record.Key {
@@ -118,7 +118,7 @@ func (a *SheetsAdaptor) Save(ctx context.Context, records []*sheetkv.Record, sch
 				values = append(values, emptyRow)
 				currentRow++
 			}
-			
+
 			// Add the actual record
 			row := make([]interface{}, len(schema))
 			for i, col := range schema {

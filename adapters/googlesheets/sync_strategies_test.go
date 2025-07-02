@@ -18,7 +18,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 
 	t.Run("GapPreserving Strategy", func(t *testing.T) {
 		var savedValues [][]interface{}
-		
+
 		// Mock server to capture the save request
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -39,7 +39,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 				var req sheets.ValueRange
 				json.NewDecoder(r.Body).Decode(&req)
 				savedValues = req.Values
-				
+
 				w.WriteHeader(http.StatusOK)
 				json.NewEncoder(w).Encode(map[string]interface{}{
 					"updatedCells": len(savedValues) * len(savedValues[0]),
@@ -56,7 +56,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 			spreadsheetID: "test-sheet-id",
 			sheetName:     "TestSheet",
 		}
-		
+
 		service, err := sheets.NewService(ctx, option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL))
 		if err != nil {
 			t.Fatalf("Failed to create sheets service: %v", err)
@@ -143,7 +143,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 
 	t.Run("Compacting Strategy", func(t *testing.T) {
 		var savedValues [][]interface{}
-		
+
 		// Mock server to capture the save request
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			switch r.URL.Path {
@@ -164,7 +164,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 				var req sheets.ValueRange
 				json.NewDecoder(r.Body).Decode(&req)
 				savedValues = req.Values
-				
+
 				w.WriteHeader(http.StatusOK)
 				json.NewEncoder(w).Encode(map[string]interface{}{
 					"updatedCells": len(savedValues) * len(savedValues[0]),
@@ -181,7 +181,7 @@ func TestSheetsAdaptor_SyncStrategies(t *testing.T) {
 			spreadsheetID: "test-sheet-id",
 			sheetName:     "TestSheet",
 		}
-		
+
 		service, err := sheets.NewService(ctx, option.WithHTTPClient(server.Client()), option.WithEndpoint(server.URL))
 		if err != nil {
 			t.Fatalf("Failed to create sheets service: %v", err)

@@ -549,7 +549,7 @@ func clearAllRecords(t *testing.T, client *sheetkv.Client) {
 // testSyncStrategies tests both gap-preserving and compacting sync strategies
 func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 	ctx := context.Background()
-	
+
 	t.Run("Gap-Preserving and Compacting Strategies", func(t *testing.T) {
 		// Note: For sync strategy tests, we need to ensure clean state
 		// Clear the adapter's data directly first
@@ -560,7 +560,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 			}
 			t.Fatalf("Failed to clear adapter data: %v", err)
 		}
-		
+
 		// Create a client to manage cache
 		config := &sheetkv.Config{
 			SyncInterval:  30 * time.Second, // Long interval to prevent auto-sync
@@ -581,14 +581,14 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 			{Values: map[string]any{"id": int64(4), "name": "David", "status": "active"}},
 			{Values: map[string]any{"id": int64(5), "name": "Eve", "status": "active"}},
 		}
-		
+
 		// Append all records
 		for _, r := range records {
 			if err := client.Append(r); err != nil {
 				t.Fatalf("Failed to append record: %v", err)
 			}
 		}
-		
+
 		// Delete some records to create gaps (Bob and David)
 		if err := client.Delete(3); err != nil { // Bob is at row 3
 			t.Fatalf("Failed to delete Bob: %v", err)
@@ -596,25 +596,25 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 		if err := client.Delete(5); err != nil { // David is at row 5
 			t.Fatalf("Failed to delete David: %v", err)
 		}
-		
+
 		// Step 2: Test Gap-Preserving Sync
 		t.Run("Gap-Preserving Sync", func(t *testing.T) {
 			// Force sync with gap-preserving (default for Sync())
 			if err := client.Sync(); err != nil {
 				t.Fatalf("Gap-preserving sync failed: %v", err)
 			}
-			
+
 			// Load data directly from adapter to verify
 			loadedRecords, _, err := adapter.Load(ctx)
 			if err != nil {
 				t.Fatalf("Failed to load after gap-preserving sync: %v", err)
 			}
-			
+
 			// Should have exactly 5 records (including empty rows for deleted ones)
 			if len(loadedRecords) != 5 {
 				t.Errorf("Expected 5 records with gaps, got %d", len(loadedRecords))
 			}
-			
+
 			// Verify specific positions
 			for _, r := range loadedRecords {
 				switch r.Key {
@@ -641,42 +641,42 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 				}
 			}
 		})
-		
+
 		// Step 3: Add more data to test compacting with trailing cleanup
 		moreRecords := []*sheetkv.Record{
 			{Values: map[string]any{"id": int64(10), "name": "Frank", "status": "active"}},
 			{Values: map[string]any{"id": int64(11), "name": "Grace", "status": "active"}},
 		}
-		
+
 		for _, r := range moreRecords {
 			if err := client.Append(r); err != nil {
 				t.Fatalf("Failed to append additional record: %v", err)
 			}
 		}
-		
+
 		// Delete Grace to test trailing cleanup
 		if err := client.Delete(8); err != nil { // Grace should be at row 8
 			t.Fatalf("Failed to delete Grace: %v", err)
 		}
-		
+
 		// Step 4: Test Compacting Sync (via Close)
 		t.Run("Compacting Sync", func(t *testing.T) {
 			// Close will trigger compacting sync
 			if err := client.Close(); err != nil {
 				t.Fatalf("Close (compacting sync) failed: %v", err)
 			}
-			
+
 			// Load data directly from adapter to verify
 			loadedRecords, _, err := adapter.Load(ctx)
 			if err != nil {
 				t.Fatalf("Failed to load after compacting sync: %v", err)
 			}
-			
+
 			// Should have exactly 4 records (Alice, Charlie, Eve, Frank - no gaps)
 			if len(loadedRecords) != 4 {
 				t.Errorf("Expected 4 compacted records, got %d", len(loadedRecords))
 			}
-			
+
 			// Verify records are compacted (sequential from row 2)
 			expectedNames := []string{"Alice", "Charlie", "Eve", "Frank"}
 			for i, r := range loadedRecords {
@@ -690,7 +690,7 @@ func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
 					}
 				}
 			}
-			
+
 			// Verify no trailing data beyond row 5
 			for _, r := range loadedRecords {
 				if r.Key > 5 {
