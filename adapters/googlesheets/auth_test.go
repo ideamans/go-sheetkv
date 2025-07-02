@@ -98,7 +98,7 @@ func TestNewWithJSONKeyFile(t *testing.T) {
 		"type": "service_account",
 		"project_id": "test-project",
 		"private_key_id": "key-id",
-		"private_key": "-----BEGIN PRIVATE KEY-----\nMIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAwJZYY0pmSdPTo4Ag\nTEPh2nlD1O4n3IYPQPa4Hdn8HT1xajplk1kLF06qRFOW7nKYDqVCHMYBLiGLNgqy\nFMKUJQIDAQABAkBBf1P5hLlr7K4nBJq/sCGHgNvnYA8OiH7kOYcmW6inoZpD1fFG\n2aEHXp8iEcLGCWJX7qVKL6UqBDKcrCVvLLaBAiEA6cw7ga1w4bWZGFBM0LH5QLA8\njF1EU92jXfsPlLrFJaUCIQDSwjL2alPDLphO7aMXqHphbQLE12L2F5HqX1gVMjqr\nYQIgbsXX9vPNnpJ1W8QQ2tfqV8Qy8YLI2qcB2H3d7J6UmHUCIFby4bKHAuHFLmjB\nlDNXPTvfHwlZCCCjTcMGfnDHOxNhAiEAg5iG0TtPQJQrXXnWxRQBuy1KwVPqSNnA\nFaPb5JdKQqo=\n-----END PRIVATE KEY-----\n"
+		"private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
 		"client_email": "test@test-project.iam.gserviceaccount.com",
 		"client_id": "123456789",
 		"auth_uri": "https://accounts.google.com/o/oauth2/auth",
@@ -172,7 +172,7 @@ func TestNewWithJSONKeyData(t *testing.T) {
 		"type": "service_account",
 		"project_id": "test-project",
 		"private_key_id": "key-id",
-		"private_key": "-----BEGIN PRIVATE KEY-----\nMIIBVAIBADANBgkqhkiG9w0BAQEFAASCAT4wggE6AgEAAkEAwJZYY0pmSdPTo4Ag\nTEPh2nlD1O4n3IYPQPa4Hdn8HT1xajplk1kLF06qRFOW7nKYDqVCHMYBLiGLNgqy\nFMKUJQIDAQABAkBBf1P5hLlr7K4nBJq/sCGHgNvnYA8OiH7kOYcmW6inoZpD1fFG\n2aEHXp8iEcLGCWJX7qVKL6UqBDKcrCVvLLaBAiEA6cw7ga1w4bWZGFBM0LH5QLA8\njF1EU92jXfsPlLrFJaUCIQDSwjL2alPDLphO7aMXqHphbQLE12L2F5HqX1gVMjqr\nYQIgbsXX9vPNnpJ1W8QQ2tfqV8Qy8YLI2qcB2H3d7J6UmHUCIFby4bKHAuHFLmjB\nlDNXPTvfHwlZCCCjTcMGfnDHOxNhAiEAg5iG0TtPQJQrXXnWxRQBuy1KwVPqSNnA\nFaPb5JdKQqo=\n-----END PRIVATE KEY-----\n"
+		"private_key": "-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n"
 		"client_email": "test@test-project.iam.gserviceaccount.com",
 		"client_id": "123456789"
 	}`)
