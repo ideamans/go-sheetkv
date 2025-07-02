@@ -267,32 +267,50 @@ type SyncManager struct {
 
 ## 6. 同期戦略
 
-### 6.1 全量同期方式
+### 6.1 同期戦略の種類
 
-- メモリ上の全データを Spreadsheet に反映
-- カラムと行の増減に対応
-- データの整合性を保証
+本ライブラリでは2種類の同期戦略をサポートしています：
+
+#### 欠番維持同期（Gap-Preserving Sync）
+- 削除されたレコードは空行として同期
+- 行番号（キー）をメモリ上とスプレッドシート上で一致させる
+- `Append` 操作時も行キーは既存の最大行番号から連続的にインクリメント
+- **使用場面**: 定期同期（スケジュール同期）
+
+#### コンパクト化同期（Compacting Sync）
+- 削除されたレコードは詰めて同期
+- データが連続的に配置され、無駄な空行が削除される
+- スプレッドシート上の行番号とレコードのキーは一致しない
+- 同期後の余分な行も削除され、データサイズが最適化される
+- **使用場面**: セッション終了時（`Close()` メソッド実行時）
 
 ### 6.2 同期アルゴリズム
 
-#### カラム同期
+#### カラム同期（両戦略共通）
 
 1. 現在のメモリ上のスキーマ（カラム順序）を取得
 2. Spreadsheet の 1 行目に現在のスキーマを書き込み
 3. 既存カラムの順序を維持しつつ、新規カラムは末尾に追加
 4. メモリ上のカラム数より後ろのカラムは削除
 
-#### データ同期
+#### データ同期（欠番維持同期）
 
 1. メモリ上の全レコードをキーでソート
-2. 2 行目から順番に全レコードを書き込み
-3. メモリ上のレコード数より後ろの行は削除
-4. 空白セルも明示的にクリア
+2. 2 行目から開始し、レコードのキーに対応する行に書き込み
+3. 削除されたレコードの行は空行として保持
+4. 最後のレコード以降の余分な行をクリア
+
+#### データ同期（コンパクト化同期）
+
+1. メモリ上の全レコードをキーでソート
+2. 2 行目から連続的にレコードを書き込み
+3. 削除されたレコードはスキップし、詰めて配置
+4. データ終了後の余分な行を削除（最大100行まで）
 
 ### 6.3 同期処理の実装
 
 ```go
-func (c *Client) saveToAdapter(ctx context.Context) error {
+func (c *Client) saveToAdapter(ctx context.Context, strategy SyncStrategy) error {
     // dirtyなレコードがある場合のみ同期
     dirtyKeys := c.cache.GetDirtyKeys()
     if len(dirtyKeys) == 0 {
@@ -306,7 +324,7 @@ func (c *Client) saveToAdapter(ctx context.Context) error {
     // アダプターに保存（リトライ付き）
     var err error
     for i := 0; i <= c.config.MaxRetries; i++ {
-        err = c.adaptor.Save(ctx, records, schema)
+        err = c.adaptor.Save(ctx, records, schema, strategy)
         if err == nil {
             c.cache.ClearDirty()
             return nil
@@ -424,8 +442,8 @@ func (sm *SyncManager) performSync() {
     }
     defer sm.syncMutex.Unlock()
 
-    // 同期処理の実行
-    _ = sm.client.saveToAdaptor()
+    // 同期処理の実行（欠番維持同期）
+    _ = sm.client.saveToAdapter(context.Background(), SyncStrategyGapPreserving)
 }
 ```
 
@@ -440,8 +458,8 @@ func (c *Client) Close() error {
         c.syncManager.Stop() // 進行中の同期が完了するまで待機
     }
 
-    // 最終同期を実行
-    if err := c.saveToAdaptor(); err != nil {
+    // 最終同期を実行（コンパクト化同期）
+    if err := c.saveToAdapter(context.Background(), SyncStrategyCompacting); err != nil {
         return fmt.Errorf("failed to sync on close: %w", err)
     }
 

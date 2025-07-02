@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"sync"
 
@@ -86,30 +87,46 @@ func (a *Adapter) Load(ctx context.Context) ([]*sheetkv.Record, []string, error)
 	records := make([]*sheetkv.Record, 0, len(rows)-1)
 	for i := 1; i < len(rows); i++ {
 		row := rows[i]
-		if len(row) == 0 {
-			continue // Skip empty rows
-		}
-
+		
 		record := &sheetkv.Record{
 			Key:    i + 1, // Row number (1-based, but data starts from row 2)
 			Values: make(map[string]interface{}),
 		}
 
-		// Map values to schema columns
-		for j, value := range row {
-			if j < len(schema) && schema[j] != "" {
-				// Try to parse as number first
-				if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
-					// Check if it's an integer
-					if intVal := int64(floatVal); float64(intVal) == floatVal {
-						record.Values[schema[j]] = intVal
+		// Check if row is empty (all cells are empty)
+		isEmpty := true
+		for _, cell := range row {
+			if cell != "" {
+				isEmpty = false
+				break
+			}
+		}
+
+		// If row is empty, still create a record with empty values
+		if isEmpty {
+			// Create empty values for all schema columns
+			for _, col := range schema {
+				if col != "" {
+					record.Values[col] = ""
+				}
+			}
+		} else {
+			// Map values to schema columns
+			for j, value := range row {
+				if j < len(schema) && schema[j] != "" {
+					// Try to parse as number first
+					if floatVal, err := strconv.ParseFloat(value, 64); err == nil {
+						// Check if it's an integer
+						if intVal := int64(floatVal); float64(intVal) == floatVal {
+							record.Values[schema[j]] = intVal
+						} else {
+							record.Values[schema[j]] = floatVal
+						}
+					} else if value == "true" || value == "false" || value == "TRUE" || value == "FALSE" {
+						record.Values[schema[j]] = (value == "true" || value == "TRUE")
 					} else {
-						record.Values[schema[j]] = floatVal
+						record.Values[schema[j]] = value
 					}
-				} else if value == "true" || value == "false" || value == "TRUE" || value == "FALSE" {
-					record.Values[schema[j]] = (value == "true" || value == "TRUE")
-				} else {
-					record.Values[schema[j]] = value
 				}
 			}
 		}
@@ -121,7 +138,7 @@ func (a *Adapter) Load(ctx context.Context) ([]*sheetkv.Record, []string, error)
 }
 
 // Save replaces all data in the Excel file with the provided records
-func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []string) error {
+func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []string, strategy sheetkv.SyncStrategy) error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
@@ -203,25 +220,91 @@ func (a *Adapter) Save(ctx context.Context, records []*sheetkv.Record, schema []
 		return fmt.Errorf("failed to write header: %w", err)
 	}
 
-	// Write records
-	for _, record := range records {
-		rowNum := record.Key
-		if rowNum < 2 {
-			rowNum = 2 // Ensure we don't overwrite header
-		}
+	// Sort records by key
+	sortedRecords := make([]*sheetkv.Record, len(records))
+	copy(sortedRecords, records)
+	sort.Slice(sortedRecords, func(i, j int) bool {
+		return sortedRecords[i].Key < sortedRecords[j].Key
+	})
 
-		rowValues := make([]interface{}, len(schema))
-		for i, col := range schema {
-			if val, ok := record.Values[col]; ok {
-				rowValues[i] = val
-			} else {
-				rowValues[i] = ""
+	// Write records based on sync strategy
+	if strategy == sheetkv.SyncStrategyGapPreserving {
+		// Gap-preserving sync: maintain row numbers, use empty rows for deleted records
+		currentRow := 2 // Start from row 2 (after header)
+		
+		for _, record := range sortedRecords {
+			// Fill gaps with empty rows
+			for currentRow < record.Key {
+				emptyRow := make([]interface{}, len(schema))
+				for i := range emptyRow {
+					emptyRow[i] = ""
+				}
+				cell := fmt.Sprintf("A%d", currentRow)
+				if err := f.SetSheetRow(a.config.SheetName, cell, &emptyRow); err != nil {
+					return fmt.Errorf("failed to write empty row %d: %w", currentRow, err)
+				}
+				currentRow++
+			}
+			
+			// Write the actual record
+			rowValues := make([]interface{}, len(schema))
+			for i, col := range schema {
+				if val, ok := record.Values[col]; ok {
+					rowValues[i] = val
+				} else {
+					rowValues[i] = ""
+				}
+			}
+			cell := fmt.Sprintf("A%d", currentRow)
+			if err := f.SetSheetRow(a.config.SheetName, cell, &rowValues); err != nil {
+				return fmt.Errorf("failed to write row %d: %w", currentRow, err)
+			}
+			currentRow++
+		}
+		
+		// Clear any remaining rows beyond the last record
+		// Find the max row that exists
+		if len(sortedRecords) > 0 {
+			lastKey := sortedRecords[len(sortedRecords)-1].Key
+			// Clear rows beyond lastKey
+			for row := lastKey + 1; row <= lastKey + 100; row++ { // Clear up to 100 extra rows
+				emptyRow := make([]interface{}, len(schema))
+				for i := range emptyRow {
+					emptyRow[i] = ""
+				}
+				cell := fmt.Sprintf("A%d", row)
+				_ = f.SetSheetRow(a.config.SheetName, cell, &emptyRow) // Best effort
 			}
 		}
-
-		cell := fmt.Sprintf("A%d", rowNum)
-		if err := f.SetSheetRow(a.config.SheetName, cell, &rowValues); err != nil {
-			return fmt.Errorf("failed to write row %d: %w", rowNum, err)
+	} else {
+		// Compacting sync: write records sequentially starting from row 2
+		rowNum := 2
+		for _, record := range sortedRecords {
+			rowValues := make([]interface{}, len(schema))
+			for i, col := range schema {
+				if val, ok := record.Values[col]; ok {
+					rowValues[i] = val
+				} else {
+					rowValues[i] = ""
+				}
+			}
+			cell := fmt.Sprintf("A%d", rowNum)
+			if err := f.SetSheetRow(a.config.SheetName, cell, &rowValues); err != nil {
+				return fmt.Errorf("failed to write row %d: %w", rowNum, err)
+			}
+			rowNum++
+		}
+		
+		// Clear remaining rows after compacting
+		totalRows := len(sortedRecords) + 1 // +1 for header
+		// Clear up to 100 rows beyond the data
+		for row := totalRows + 1; row <= totalRows + 100; row++ {
+			emptyRow := make([]interface{}, len(schema))
+			for i := range emptyRow {
+				emptyRow[i] = ""
+			}
+			cell := fmt.Sprintf("A%d", row)
+			_ = f.SetSheetRow(a.config.SheetName, cell, &emptyRow) // Best effort
 		}
 	}
 
@@ -319,8 +402,8 @@ func (a *Adapter) BatchUpdate(ctx context.Context, operations []sheetkv.Operatio
 		newRecords = append(newRecords, record)
 	}
 
-	// Save the updated data
-	return a.Save(ctx, newRecords, schema)
+	// Save the updated data (use gap-preserving strategy for batch updates)
+	return a.Save(ctx, newRecords, schema, sheetkv.SyncStrategyGapPreserving)
 }
 
 // columnName converts a column number to Excel column name (1 -> A, 26 -> Z, 27 -> AA)

@@ -113,8 +113,8 @@ func TestAdapter_LoadSave(t *testing.T) {
 			},
 		}
 
-		// Save data
-		err := adapter.Save(ctx, records, schema)
+		// Save data (using gap-preserving for test)
+		err := adapter.Save(ctx, records, schema, sheetkv.SyncStrategyGapPreserving)
 		if err != nil {
 			t.Fatalf("Save() error = %v", err)
 		}
@@ -164,7 +164,7 @@ func TestAdapter_LoadSave(t *testing.T) {
 	})
 
 	t.Run("Save empty data", func(t *testing.T) {
-		err := adapter.Save(ctx, []*sheetkv.Record{}, []string{})
+		err := adapter.Save(ctx, []*sheetkv.Record{}, []string{}, sheetkv.SyncStrategyGapPreserving)
 		if err != nil {
 			t.Errorf("Save() with empty data error = %v", err)
 		}
@@ -179,7 +179,7 @@ func TestAdapter_LoadSave(t *testing.T) {
 			t.Errorf("Load() with cancelled context should return error")
 		}
 
-		err = adapter.Save(cancelCtx, []*sheetkv.Record{}, []string{})
+		err = adapter.Save(cancelCtx, []*sheetkv.Record{}, []string{}, sheetkv.SyncStrategyGapPreserving)
 		if err == nil {
 			t.Errorf("Save() with cancelled context should return error")
 		}
@@ -220,7 +220,7 @@ func TestAdapter_BatchUpdate(t *testing.T) {
 		},
 	}
 
-	err = adapter.Save(ctx, records, schema)
+	err = adapter.Save(ctx, records, schema, sheetkv.SyncStrategyGapPreserving)
 	if err != nil {
 		t.Fatalf("Failed to save initial data: %v", err)
 	}
@@ -310,6 +310,196 @@ func TestAdapter_BatchUpdate(t *testing.T) {
 			}
 			if record.Key == 4 {
 				t.Errorf("Deleted record still exists")
+			}
+		}
+	})
+}
+
+func TestAdapter_SyncStrategies(t *testing.T) {
+	// Create a temporary directory for test files
+	tempDir, err := os.MkdirTemp("", "excel-sync-test-*")
+	if err != nil {
+		t.Fatalf("Failed to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tempDir)
+
+	ctx := context.Background()
+
+	t.Run("GapPreserving Strategy", func(t *testing.T) {
+		testFile := filepath.Join(tempDir, "gap_test.xlsx")
+		config := &Config{
+			FilePath:  testFile,
+			SheetName: "GapTest",
+		}
+		adapter, err := New(config)
+		if err != nil {
+			t.Fatalf("Failed to create adapter: %v", err)
+		}
+
+		// Create records with gaps (deleted records)
+		schema := []string{"id", "name"}
+		records := []*sheetkv.Record{
+			{
+				Key: 2,
+				Values: map[string]interface{}{
+					"id":   int64(1),
+					"name": "First",
+				},
+			},
+			// Gap at row 3 (deleted)
+			{
+				Key: 4,
+				Values: map[string]interface{}{
+					"id":   int64(3),
+					"name": "Third",
+				},
+			},
+			// Gap at row 5 (deleted)
+			{
+				Key: 6,
+				Values: map[string]interface{}{
+					"id":   int64(5),
+					"name": "Fifth",
+				},
+			},
+		}
+
+		// Save with gap-preserving strategy
+		err = adapter.Save(ctx, records, schema, sheetkv.SyncStrategyGapPreserving)
+		if err != nil {
+			t.Fatalf("Save with gap-preserving error = %v", err)
+		}
+
+		// Load and verify gaps are preserved
+		loaded, _, err := adapter.Load(ctx)
+		if err != nil {
+			t.Fatalf("Load error = %v", err)
+		}
+
+		// Should have 5 records (including empty rows)
+		if len(loaded) != 5 {
+			t.Errorf("Got %d records, want 5 (including gaps)", len(loaded))
+		}
+
+		// Verify key positions
+		for _, r := range loaded {
+			switch r.Key {
+			case 2:
+				if name := r.GetAsString("name", ""); name != "First" {
+					t.Errorf("Row 2 name = %s, want First", name)
+				}
+			case 3:
+				// Should be empty
+				if name := r.GetAsString("name", ""); name != "" {
+					t.Errorf("Row 3 should be empty, got name = %s", name)
+				}
+			case 4:
+				if name := r.GetAsString("name", ""); name != "Third" {
+					t.Errorf("Row 4 name = %s, want Third", name)
+				}
+			case 5:
+				// Should be empty
+				if name := r.GetAsString("name", ""); name != "" {
+					t.Errorf("Row 5 should be empty, got name = %s", name)
+				}
+			case 6:
+				if name := r.GetAsString("name", ""); name != "Fifth" {
+					t.Errorf("Row 6 name = %s, want Fifth", name)
+				}
+			}
+		}
+	})
+
+	t.Run("Compacting Strategy", func(t *testing.T) {
+		testFile := filepath.Join(tempDir, "compact_test.xlsx")
+		config := &Config{
+			FilePath:  testFile,
+			SheetName: "CompactTest",
+		}
+		adapter, err := New(config)
+		if err != nil {
+			t.Fatalf("Failed to create adapter: %v", err)
+		}
+
+		// First, save some data with gaps using gap-preserving
+		schema := []string{"id", "name"}
+		recordsWithGaps := []*sheetkv.Record{
+			{
+				Key: 2,
+				Values: map[string]interface{}{
+					"id":   int64(1),
+					"name": "First",
+				},
+			},
+			// Gap at row 3
+			{
+				Key: 4,
+				Values: map[string]interface{}{
+					"id":   int64(3),
+					"name": "Third",
+				},
+			},
+			// Gap at row 5
+			{
+				Key: 6,
+				Values: map[string]interface{}{
+					"id":   int64(5),
+					"name": "Fifth",
+				},
+			},
+			// Extra rows to verify trailing cleanup
+			{
+				Key: 10,
+				Values: map[string]interface{}{
+					"id":   int64(10),
+					"name": "Tenth",
+				},
+			},
+		}
+
+		// First save with gaps
+		err = adapter.Save(ctx, recordsWithGaps, schema, sheetkv.SyncStrategyGapPreserving)
+		if err != nil {
+			t.Fatalf("Initial save error = %v", err)
+		}
+
+		// Now save compacted data (without the 10th record)
+		compactRecords := recordsWithGaps[:3] // Only first 3 records
+
+		// Save with compacting strategy
+		err = adapter.Save(ctx, compactRecords, schema, sheetkv.SyncStrategyCompacting)
+		if err != nil {
+			t.Fatalf("Save with compacting error = %v", err)
+		}
+
+		// Load and verify data is compacted
+		loaded, _, err := adapter.Load(ctx)
+		if err != nil {
+			t.Fatalf("Load error = %v", err)
+		}
+
+		// Should have exactly 3 records (no gaps)
+		if len(loaded) != 3 {
+			t.Errorf("Got %d records, want 3 (compacted)", len(loaded))
+		}
+
+		// Verify records are sequential starting from row 2
+		expectedKeys := []int{2, 3, 4}
+		expectedNames := []string{"First", "Third", "Fifth"}
+
+		for i, r := range loaded {
+			if r.Key != expectedKeys[i] {
+				t.Errorf("Record %d key = %d, want %d", i, r.Key, expectedKeys[i])
+			}
+			if name := r.GetAsString("name", ""); name != expectedNames[i] {
+				t.Errorf("Record %d name = %s, want %s", i, name, expectedNames[i])
+			}
+		}
+
+		// Verify no trailing data
+		for _, r := range loaded {
+			if r.Key > 4 {
+				t.Errorf("Found unexpected record at row %d after compacting", r.Key)
 			}
 		}
 	})

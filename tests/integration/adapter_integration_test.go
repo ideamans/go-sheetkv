@@ -16,6 +16,88 @@ import (
 	"github.com/ideamans/go-sheetkv/tests/common"
 )
 
+// getSyncTestAdapters returns fresh adapters specifically for sync strategy tests
+func getSyncTestAdapters(t *testing.T) []common.AdapterTestCase {
+	// Load .env file if it exists
+	envPath := filepath.Join("..", "..", ".env")
+	if _, err := os.Stat(envPath); err == nil {
+		loadEnvFile(envPath)
+	}
+
+	var adapters []common.AdapterTestCase
+
+	// Always test Excel adapter
+	tempDir := t.TempDir()
+	excelFile := filepath.Join(tempDir, "sync_test.xlsx")
+	excelConfig := &excel.Config{
+		FilePath:  excelFile,
+		SheetName: "sync",
+	}
+	excelAdapter, err := excel.New(excelConfig)
+	if err != nil {
+		t.Fatalf("Failed to create Excel adapter: %v", err)
+	}
+	adapters = append(adapters, common.AdapterTestCase{
+		Name:        "Excel",
+		Adapter:     excelAdapter,
+		Description: fmt.Sprintf("Excel file: %s", excelFile),
+	})
+
+	// Test Google Sheets if configured
+	spreadsheetID := os.Getenv("TEST_GOOGLE_SHEET_ID")
+	if spreadsheetID != "" {
+		ctx := context.Background()
+
+		// Test with JSON file auth if available
+		jsonPath := os.Getenv("GOOGLE_APPLICATION_CREDENTIALS")
+		if jsonPath != "" {
+			// If path is relative, make it absolute
+			if !filepath.IsAbs(jsonPath) {
+				jsonPath = filepath.Join("..", "..", jsonPath)
+			}
+
+			gsConfig := googlesheets.Config{
+				SpreadsheetID: spreadsheetID,
+				SheetName:     "sync",
+			}
+			adapter, err := googlesheets.NewWithJSONKeyFile(ctx, gsConfig, jsonPath)
+			if err == nil {
+				adapters = append(adapters, common.AdapterTestCase{
+					Name:        "GoogleSheets-JSON",
+					Adapter:     adapter,
+					Description: "Google Sheets with JSON file auth",
+				})
+			}
+		}
+
+		// Test with email/key auth if available
+		email := os.Getenv("TEST_CLIENT_EMAIL")
+		privateKey := os.Getenv("TEST_CLIENT_PRIVATE_KEY")
+		if email != "" && privateKey != "" {
+			// In CI, the private key might have literal \n instead of actual newlines
+			// Apply the same transformation that loadEnvFile does
+			if !strings.Contains(privateKey, "\n") && strings.Contains(privateKey, "\\n") {
+				privateKey = strings.ReplaceAll(privateKey, "\\n", "\n")
+			}
+
+			gsConfig := googlesheets.Config{
+				SpreadsheetID: spreadsheetID,
+				SheetName:     "sync",
+			}
+			adapter, err := googlesheets.NewWithServiceAccountKey(ctx, gsConfig, email, privateKey)
+			if err == nil {
+				adapters = append(adapters, common.AdapterTestCase{
+					Name:        "GoogleSheets-EmailKey",
+					Adapter:     adapter,
+					Description: "Google Sheets with email/key auth",
+				})
+			}
+		}
+	}
+
+	return adapters
+}
+
 // getTestAdapters returns all adapters to test
 func getTestAdapters(t *testing.T) []common.AdapterTestCase {
 	// Load .env file if it exists
@@ -146,8 +228,20 @@ func TestAdapterIntegration(t *testing.T) {
 			t.Run("LargeDataSet", func(t *testing.T) {
 				testLargeDataSet(t, client)
 			})
+
+			// Note: SyncStrategies test is run separately with fresh adapters
 		})
 	}
+
+	// Run sync strategy tests separately with fresh adapters to avoid interference
+	t.Run("SyncStrategies", func(t *testing.T) {
+		syncAdapters := getSyncTestAdapters(t)
+		for _, tc := range syncAdapters {
+			t.Run(tc.Name, func(t *testing.T) {
+				testSyncStrategies(t, tc.Adapter)
+			})
+		}
+	})
 }
 
 // testBasicCRUD tests basic create, read, update, delete operations
@@ -450,6 +544,161 @@ func clearAllRecords(t *testing.T, client *sheetkv.Client) {
 	if err := client.Sync(); err != nil {
 		t.Fatalf("Failed to sync after clearing: %v", err)
 	}
+}
+
+// testSyncStrategies tests both gap-preserving and compacting sync strategies
+func testSyncStrategies(t *testing.T, adapter sheetkv.Adapter) {
+	ctx := context.Background()
+	
+	t.Run("Gap-Preserving and Compacting Strategies", func(t *testing.T) {
+		// Note: For sync strategy tests, we need to ensure clean state
+		// Clear the adapter's data directly first
+		if err := adapter.Save(ctx, []*sheetkv.Record{}, []string{}, sheetkv.SyncStrategyCompacting); err != nil {
+			// Skip if Google Sheets sheet doesn't exist
+			if strings.Contains(err.Error(), "Unable to parse range") || strings.Contains(err.Error(), "badRequest") {
+				t.Skipf("Skipping test - sheet may not exist: %v", err)
+			}
+			t.Fatalf("Failed to clear adapter data: %v", err)
+		}
+		
+		// Create a client to manage cache
+		config := &sheetkv.Config{
+			SyncInterval:  30 * time.Second, // Long interval to prevent auto-sync
+			MaxRetries:    3,
+			RetryInterval: 100 * time.Millisecond,
+		}
+		client := sheetkv.New(adapter, config)
+		if err := client.Initialize(ctx); err != nil {
+			t.Fatalf("Failed to initialize client: %v", err)
+		}
+		// Note: We don't use defer client.Close() here because we test Close() explicitly
+
+		// Step 1: Add records with gaps
+		records := []*sheetkv.Record{
+			{Values: map[string]any{"id": int64(1), "name": "Alice", "status": "active"}},
+			{Values: map[string]any{"id": int64(2), "name": "Bob", "status": "active"}},
+			{Values: map[string]any{"id": int64(3), "name": "Charlie", "status": "inactive"}},
+			{Values: map[string]any{"id": int64(4), "name": "David", "status": "active"}},
+			{Values: map[string]any{"id": int64(5), "name": "Eve", "status": "active"}},
+		}
+		
+		// Append all records
+		for _, r := range records {
+			if err := client.Append(r); err != nil {
+				t.Fatalf("Failed to append record: %v", err)
+			}
+		}
+		
+		// Delete some records to create gaps (Bob and David)
+		if err := client.Delete(3); err != nil { // Bob is at row 3
+			t.Fatalf("Failed to delete Bob: %v", err)
+		}
+		if err := client.Delete(5); err != nil { // David is at row 5
+			t.Fatalf("Failed to delete David: %v", err)
+		}
+		
+		// Step 2: Test Gap-Preserving Sync
+		t.Run("Gap-Preserving Sync", func(t *testing.T) {
+			// Force sync with gap-preserving (default for Sync())
+			if err := client.Sync(); err != nil {
+				t.Fatalf("Gap-preserving sync failed: %v", err)
+			}
+			
+			// Load data directly from adapter to verify
+			loadedRecords, _, err := adapter.Load(ctx)
+			if err != nil {
+				t.Fatalf("Failed to load after gap-preserving sync: %v", err)
+			}
+			
+			// Should have exactly 5 records (including empty rows for deleted ones)
+			if len(loadedRecords) != 5 {
+				t.Errorf("Expected 5 records with gaps, got %d", len(loadedRecords))
+			}
+			
+			// Verify specific positions
+			for _, r := range loadedRecords {
+				switch r.Key {
+				case 2: // Alice
+					if name := r.GetAsString("name", ""); name != "Alice" {
+						t.Errorf("Row 2 should be Alice, got %s", name)
+					}
+				case 3: // Deleted (Bob)
+					if name := r.GetAsString("name", ""); name != "" {
+						t.Errorf("Row 3 should be empty (deleted Bob), got %s", name)
+					}
+				case 4: // Charlie
+					if name := r.GetAsString("name", ""); name != "Charlie" {
+						t.Errorf("Row 4 should be Charlie, got %s", name)
+					}
+				case 5: // Deleted (David)
+					if name := r.GetAsString("name", ""); name != "" {
+						t.Errorf("Row 5 should be empty (deleted David), got %s", name)
+					}
+				case 6: // Eve
+					if name := r.GetAsString("name", ""); name != "Eve" {
+						t.Errorf("Row 6 should be Eve, got %s", name)
+					}
+				}
+			}
+		})
+		
+		// Step 3: Add more data to test compacting with trailing cleanup
+		moreRecords := []*sheetkv.Record{
+			{Values: map[string]any{"id": int64(10), "name": "Frank", "status": "active"}},
+			{Values: map[string]any{"id": int64(11), "name": "Grace", "status": "active"}},
+		}
+		
+		for _, r := range moreRecords {
+			if err := client.Append(r); err != nil {
+				t.Fatalf("Failed to append additional record: %v", err)
+			}
+		}
+		
+		// Delete Grace to test trailing cleanup
+		if err := client.Delete(8); err != nil { // Grace should be at row 8
+			t.Fatalf("Failed to delete Grace: %v", err)
+		}
+		
+		// Step 4: Test Compacting Sync (via Close)
+		t.Run("Compacting Sync", func(t *testing.T) {
+			// Close will trigger compacting sync
+			if err := client.Close(); err != nil {
+				t.Fatalf("Close (compacting sync) failed: %v", err)
+			}
+			
+			// Load data directly from adapter to verify
+			loadedRecords, _, err := adapter.Load(ctx)
+			if err != nil {
+				t.Fatalf("Failed to load after compacting sync: %v", err)
+			}
+			
+			// Should have exactly 4 records (Alice, Charlie, Eve, Frank - no gaps)
+			if len(loadedRecords) != 4 {
+				t.Errorf("Expected 4 compacted records, got %d", len(loadedRecords))
+			}
+			
+			// Verify records are compacted (sequential from row 2)
+			expectedNames := []string{"Alice", "Charlie", "Eve", "Frank"}
+			for i, r := range loadedRecords {
+				expectedKey := i + 2 // Start from row 2
+				if r.Key != expectedKey {
+					t.Errorf("Record %d: expected key %d, got %d", i, expectedKey, r.Key)
+				}
+				if i < len(expectedNames) {
+					if name := r.GetAsString("name", ""); name != expectedNames[i] {
+						t.Errorf("Record %d: expected name %s, got %s", i, expectedNames[i], name)
+					}
+				}
+			}
+			
+			// Verify no trailing data beyond row 5
+			for _, r := range loadedRecords {
+				if r.Key > 5 {
+					t.Errorf("Found unexpected record at row %d after compacting", r.Key)
+				}
+			}
+		})
+	})
 }
 
 // loadEnvFile loads environment variables from a .env file

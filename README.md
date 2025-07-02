@@ -225,6 +225,23 @@ results, err := client.Query(sheetkv.Query{
 - Row 2+: Data records
 - Keys are row numbers (starting from 2)
 
+## Synchronization Strategies
+
+This library implements two synchronization strategies:
+
+### Gap-Preserving Sync (Default for Scheduled Sync)
+- Deleted records are synchronized as empty rows
+- Maintains consistency between memory row numbers (keys) and spreadsheet row numbers
+- When appending new records, keys continue incrementing from the highest existing key
+- Used automatically during periodic synchronization
+
+### Compacting Sync (Used on Close)
+- Deleted records are removed and remaining data is compacted
+- Provides optimal spreadsheet size by removing empty rows
+- Row numbers in the spreadsheet may not match record keys after sync
+- Automatically removes trailing empty rows to maintain clean data
+- Used automatically when calling `Close()` to finalize the session
+
 ## Default Configurations
 
 ### Google Sheets
