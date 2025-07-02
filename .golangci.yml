@@ -48,10 +48,6 @@ linters-settings:
   
   dupl:
     threshold: 100
-  
-  gocritic:
-    disabled-checks:
-      - commentedOutCode
 
 issues:
   exclude-rules:
@@ -85,27 +81,29 @@ issues:
 
   # Maximum count of issues with the same text
   max-same-issues: 10
-
-run:
-  # Timeout for analysis
-  timeout: 5m
   
-  # Which dirs to skip
-  skip-dirs:
+  # Which dirs to exclude
+  exclude-dirs:
     - vendor
     - third_party
     - testdata
     - examples
     - docs
   
-  # Which files to skip
-  skip-files:
+  # Which files to exclude
+  exclude-files:
     - ".*\\.pb\\.go"
     - ".*\\.gen\\.go"
 
+run:
+  # Timeout for analysis
+  timeout: 5m
+
 output:
   # Format: colored-line-number|line-number|json|tab|checkstyle|code-climate
-  format: colored-line-number
+  formats:
+    - format: colored-line-number
+      path: stdout
   
   # Print lines of code with issue
   print-issued-lines: true
